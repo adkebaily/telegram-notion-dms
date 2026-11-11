@@ -1,0 +1,11 @@
+fastapi==0.162.0
+uvicorn==0.54.0
+httpx==0.28.1
+img2pdf==0.6.3
+ocrmypdf==17.13.0
+pikepdf==10.16.0
+pillow==12.3.0
+pytest==9.1.1
+opencv-python-headless==5.0.0.93
+pyrofork==2.3.69
+tgcrypto-pyrofork==1.2.8

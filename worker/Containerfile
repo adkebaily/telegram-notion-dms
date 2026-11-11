@@ -1,0 +1,19 @@
+# AWS mirror of the official Python image: no Docker Hub pull limit on shared networks
+FROM public.ecr.aws/docker/library/python:3.12-slim
+
+# tesseract-ocr brings eng + osd (page rotation); fra added; ghostscript = PDF compression
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra ghostscript fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app.py scan.py telegram_dl.py test_app.py test_scan.py eval_orientation.py ./
+COPY eval eval
+
+# /data/session: MTProto login for files over 20 MB, kept in a volume across restarts
+RUN useradd -m worker && mkdir -p /data/session && chown worker /data/session
+USER worker
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

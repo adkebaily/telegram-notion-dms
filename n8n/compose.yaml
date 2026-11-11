@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16
+    restart: always
+    env_file: .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
+      interval: 5s
+      retries: 10
+
+  n8n:
+    image: ghcr.io/n8n-io/n8n:latest
+    restart: always
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_PROXY_HOPS=1
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - GENERIC_TIMEZONE=Europe/Paris
+      - TZ=Europe/Paris
+      - N8N_RUNNERS_ENABLED=true
+      - NODE_OPTIONS=--max-old-space-size=8192
+      - N8N_RUNNERS_MAX_OLD_SPACE_SIZE=4096
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
+
+  # file work for the DMS workflow (code in ../worker); n8n calls it at http://dms-worker:8000
+  dms-worker:
+    build: ../worker
+    image: localhost/dms-worker:latest
+    restart: always
+    env_file: ../worker/.env
+    environment:
+      # from n8n/.env: lets the worker download Telegram files over 20 MB
+      - TG_API_ID=${TG_API_ID}
+      - TG_API_HASH=${TG_API_HASH}
+    volumes:
+      - dms_session:/data/session
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      retries: 3
+
+volumes:
+  pg_data:
+  n8n_data:
+  dms_session:

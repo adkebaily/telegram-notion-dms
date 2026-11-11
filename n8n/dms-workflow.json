@@ -1,0 +1,977 @@
+{
+  "name": "DMS — Telegram → OCR PDF → Notion",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "dms-1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 0: keep only what you send: photos / JPEG or PDF files, a caption text, or a tap on a \"which module?\" button\nconst ALLOWED_CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID'; // <-- your Telegram chat id\nconst day = t => new Date(t * 1000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }); // YYYY-MM-DD\nconst out = [];\nfor (const item of $input.all()) {\n  const cq = item.json.callback_query;\n  const m = item.json.message || cq?.message;\n  if (!m) continue;\n  if (String(m.chat.id) !== ALLOWED_CHAT_ID) {\n    throw new Error('Unknown chat ' + m.chat.id + '. If this is you, set ALLOWED_CHAT_ID = \"' + m.chat.id + '\" in the Normalize node.');\n  }\n  if (cq) {\n    // button tap: the options are written in the question message itself (\"Type: TD\", \"1 → Modélisation\")\n    const type = (m.text?.match(/^Type: (.+)$/m) || [])[1];\n    const pick = (m.text?.match(new RegExp('^' + cq.data + ' → (.+)$', 'm')) || [])[1];\n    if (type && pick) out.push({ json: { group_id: '', file_id: '', caption: pick.trim(), type: type.trim(), confirmed: true, msg_id: m.message_id, chat_id: String(m.chat.id), sent_date: day(m.date) } });\n    continue; // \"I'll type it\" button: nothing to do, wait for your text\n  }\n  let fileId = null;\n  if (m.photo?.length) fileId = m.photo[m.photo.length - 1].file_id; // largest size\n  else if (['image/jpeg', 'application/pdf'].includes(m.document?.mime_type)) fileId = m.document.file_id;\n  if (!fileId) {\n    // a text message right after the files = the module title (+ type)\n    if (m.text && !m.text.startsWith('/')) out.push({ json: { group_id: '', file_id: '', caption: m.text.trim(), msg_id: m.message_id, chat_id: String(m.chat.id), sent_date: day(m.date) } });\n    continue; // PNG sent as *file* is ignored (send it as photo)\n  }\n  out.push({ json: {\n    group_id: m.media_group_id || 'single_' + m.message_id,\n    file_id: fileId,\n    caption: (m.caption || '').trim(),\n    msg_id: m.message_id,\n    chat_id: String(m.chat.id),\n    sent_date: day(m.date),\n  } });\n}\nreturn out;"
+      },
+      "id": "dms-2",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "dms_buffer"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "group_id",
+              "displayName": "group_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "file_id",
+              "displayName": "file_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "caption",
+              "displayName": "caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "msg_id",
+              "displayName": "msg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sent_date",
+              "displayName": "sent_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dms-3",
+      "name": "Buffer photo",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Normalize').item.json.caption }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dms-4",
+      "name": "Has caption?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "id": "dms-5",
+      "name": "Wait for album",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/YOUR_NOTION_DATABASE_ID/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"page_size\": 100 }",
+        "options": {}
+      },
+      "id": "dms-6",
+      "name": "Find module",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "executeOnce": true,
+      "notesInFlow": true,
+      "credentials": {
+        "notionApi": {
+          "name": "Notion account"
+        }
+      },
+      "notes": "shortcut: reads the first 100 modules only"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "dms_buffer"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "keyValue": "={{ $('Normalize').first().json.chat_id }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "dms-7",
+      "name": "Get album",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        0
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 02: build the Notion requests from dms-worker's answer\nconst p = $('Prepare job').first().json;\nconst r = $('Process files').first().json;\n// worker v2 answers with lists (a too-big PDF is split into parts); v1 answered with single ids\nconst batchIds = r.batch_upload_ids || [r.batch_upload_id];\nconst mergedIds = r.merged_upload_ids || [r.merged_upload_id];\nconst mergedNames = r.merged_filenames || [r.merged_filename];\nconst parts = r.parts || 1;\nconst totalPages = p.prevPages + r.new_pages;\nconst note = (r.merged ? 'merged' : (r.had_old ? 'new part (5 MB limit)' : 'first batch')) + (parts > 1 ? ' · split in ' + parts + ' parts (5 MB limit)' : '');\nconst properties = {\n  'Merged PDF': { files: mergedIds.map((id, i) => ({ type: 'file_upload', file_upload: { id }, name: mergedNames[i] })) },\n  Pages: { number: totalPages },\n  Batches: { number: p.batches },\n  'Last update': { date: { start: p.sentDate } },\n  Type: { select: { name: p.type } },\n};\nconst log = [\n  { object: 'block', type: 'heading_3', heading_3: { rich_text: [\n    { type: 'mention', mention: { date: { start: p.sentDate } } },\n    { type: 'text', text: { content: ' · « ' + p.caption + ' »' }, annotations: { bold: true } },\n    { type: 'text', text: { content: ' · +' + r.new_pages + ' page(s) · ' + r.batch_mb + ' MB · ' + note }, annotations: { color: 'gray' } },\n  ] } },\n  ...batchIds.map(id => ({ object: 'block', type: 'pdf', pdf: { type: 'file_upload', file_upload: { id } } })),\n];\nconst createBody = {\n  parent: { database_id: 'YOUR_NOTION_DATABASE_ID' },\n  icon: { type: 'emoji', emoji: '📄' },\n  properties: { Module: { title: [{ text: { content: p.module } }] }, ...properties },\n  children: [\n    { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: 'Upload log' } }] } },\n    { object: 'block', type: 'divider', divider: {} },\n    ...log,\n  ],\n};\nreturn [{ json: {\n  exists: !!p.pageId,\n  pageId: p.pageId,\n  createBody: JSON.stringify(createBody),\n  updateBody: JSON.stringify({ properties }),\n  appendBody: JSON.stringify({ children: log }),\n  reply: (p.pageId ? '✅ ' : '🆕 ') + p.module + ' · ' + p.type + '\\n+' + r.new_pages + ' page(s) · ' + p.sentDate + '\\nTotal: ' + totalPages + ' pages · ' + p.batches + ' batch(es) · ' + note + (r.cropped ? '\\n📐 ' + r.cropped + ' photo(s) cropped to the sheet' : '') + (r.rotated ? '\\n↻ ' + r.rotated + ' page(s) turned upright' : ''),\n} }];"
+      },
+      "id": "dms-19",
+      "name": "Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "dms-20",
+      "name": "Module exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.pageId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.updateBody }}",
+        "options": {}
+      },
+      "id": "dms-21",
+      "name": "Update module",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5040,
+        -160
+      ],
+      "credentials": {
+        "notionApi": {
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/blocks/{{ $('Results').first().json.pageId }}/children",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Results').first().json.appendBody }}",
+        "options": {}
+      },
+      "id": "dms-22",
+      "name": "Append log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5280,
+        -160
+      ],
+      "credentials": {
+        "notionApi": {
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.createBody }}",
+        "options": {}
+      },
+      "id": "dms-23",
+      "name": "Create module",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5520,
+        160
+      ],
+      "credentials": {
+        "notionApi": {
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "dms_buffer"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "keyValue": "={{ $('Normalize').first().json.chat_id }}"
+            },
+            {
+              "keyName": "msg_id",
+              "condition": "lte",
+              "keyValue": "={{ $('Prepare job').first().json.lastMsgId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dms-24",
+      "name": "Clear buffer",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5760,
+        0
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Normalize').first().json.chat_id }}",
+        "text": "={{ $('Results').first().json.reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "dms-25",
+      "name": "Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        6000,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.file_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dms-26",
+      "name": "Is photo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        608,
+        -208
+      ]
+    },
+    {
+      "id": "95ec0104-8dc5-4087-8837-73e7c005e2e8",
+      "name": "Gemini classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        320
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  systemInstruction: { parts: [{ text: \"You file course documents (photos or PDFs) of a French university student (Master in Signal and Image Processing) into a Notion database.\\nThe student types a short caption fast: it may contain typos, abbreviations, missing accents, mixed French/English, numbers and a document type.\\nReturn JSON:\\n- type: one of Cours, TD, TP, Examen, Corrigé, Notes perso.\\n  cours, CM, lecture, slides, chapitre -> Cours. TD, exercices, serie, feuille -> TD. TP, lab, labo, pratique -> TP.\\n  examen, exam, partiel, DS, CC, controle, interro, rattrapage -> Examen. corrige, correction, solution (also \\\"corrige TD\\\") -> Corrigé.\\n  notes, mes notes, perso, resume, fiche -> Notes perso. No type word -> Cours.\\n- module: the subject only (drop the type word, numbers like TD3, dates and filler words), with correct French spelling, accents and capitalisation, abbreviations expanded. Examples: \\\"proba\\\" -> \\\"Probabilités\\\", \\\"stats\\\" -> \\\"Statistiques\\\", \\\"modilisation\\\" -> \\\"Modélisation\\\".\\n- existing: if the subject is the same as one of the existing modules (abbreviation, typo, missing accents, singular/plural, word order, French/English), copy that existing name exactly. Otherwise an empty string.\\n- confident: true only if you are sure about \\\"existing\\\" (the match, or that no existing module fits).\" }] },\n  contents: [{ parts: [{ text: 'Caption: ' + JSON.stringify($('Normalize').first().json.caption) + '\\nExisting modules: ' + JSON.stringify([...new Set(($('Find module').first().json.results || []).map(p => (p.properties.Module?.title || []).map(t => t.plain_text).join('')).filter(Boolean))]) }] }],\n  generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: {\n    type: { type: 'STRING', enum: [\"Cours\",\"TD\",\"TP\",\"Examen\",\"Corrigé\",\"Notes perso\"] }, module: { type: 'STRING' }, existing: { type: 'STRING' }, confident: { type: 'BOOLEAN' } },\n    required: ['type', 'module', 'existing', 'confident'] } }\n}) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 16000
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "c9e26df7-7146-4c52-9045-83cfe584e798",
+      "name": "Confirmed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Normalize').first().json.confirmed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6d96e28c-209f-49df-a15d-97fff47798d8",
+      "name": "Confident?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.confident }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "1699ca77-44c5-4d76-bf85-c6804580ed78",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        320
+      ],
+      "parameters": {
+        "jsCode": "// Step 0b: module + type. A button tap is trusted as is; a new or unsure module goes back to you as a question\nconst cap = $('Normalize').first().json;\nconst norm = s => (s || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').trim().toLowerCase().replace(/\\s+/g, ' ');\nconst title = p => (p.properties.Module?.title || []).map(t => t.plain_text).join('');\nconst modules = [...new Set(($('Find module').first().json.results || []).map(title).filter(Boolean))];\nconst known = s => modules.find(m => norm(m) === norm(s)) || ''; // also drops names Gemini made up\n\nif (cap.confirmed) return [{ json: { module: known(cap.caption) || cap.caption, type: cap.type, confident: true } }];\n\nconst g = JSON.parse($('Gemini classify').first().json.candidates[0].content.parts[0].text);\nconst existing = known(g.existing);\nconst fresh = g.module.trim();\nconst confident = !!existing && (g.confident || norm(existing) === norm(fresh));\nconst opts = existing ? [existing, fresh] : [fresh]; // new modules always need one tap, so typos never create duplicates\nreturn [{ json: {\n  module: existing || fresh, type: g.type, confident,\n  question: (existing ? '🤔 Not sure where to file' : '🆕 New module?') + ' « ' + cap.caption + ' »\\nType: ' + g.type + '\\n'\n    + opts.map((o, k) => (k + 1) + ' → ' + o).join('\\n') + '\\n\\nTap a button, or type the right name.',\n  b1: (existing ? '📂 ' : '🆕 ') + opts[0],\n  b2: existing ? '🆕 ' + fresh : \"✏️ I'll type it\",\n} }];"
+      }
+    },
+    {
+      "id": "c4712491-cbc6-4c87-bdd3-af4ce97ca00b",
+      "name": "Ask module",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2400,
+        480
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram account"
+        }
+      },
+      "parameters": {
+        "chatId": "={{ $('Normalize').first().json.chat_id }}",
+        "text": "={{ $json.question }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.b1 }}",
+                    "additionalFields": {
+                      "callback_data": "1"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.b2 }}",
+                    "additionalFields": {
+                      "callback_data": "2"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "d286c78d-ca2c-46a7-b627-53e5f573bcec",
+      "name": "On error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        640
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "389f924e-5706-43ab-b874-ea46cee06536",
+      "name": "Report error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        640
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram account"
+        }
+      },
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ '❌ DMS failed at « ' + $json.execution.lastNodeExecuted + ' »\\n' + ($json.execution.error.description || $json.execution.error.message) + '\\nYour files are still buffered: resend the caption to retry.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "f4dfc4d8-f914-43bb-89ef-2ab14e06348c",
+      "name": "Prepare job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Step 01: everything dms-worker needs, as JSON only: file bytes never pass through n8n (that crashed its heap)\nconst cap = $('Normalize').first().json;\nconst d = $('Decide').first().json;\nconst norm = s => (s || '').normalize('NFKC').trim().toLowerCase().replace(/\\s+/g, ' ');\nconst title = p => (p.properties.Module?.title || []).map(t => t.plain_text).join('');\nconst page = ($('Find module').first().json.results || []).find(p => norm(title(p)) === norm(d.module) && (p.properties.Type?.select?.name || 'Cours') === d.type); // rows without a type count as Cours\nconst rows = $input.all().map(i => i.json).filter(r => r.file_id).sort((a, b) => Number(a.msg_id) - Number(b.msg_id));\nreturn [{ json: {\n  module: page ? title(page) : d.module,\n  type: d.type,\n  pageId: page?.id || null,\n  sentDate: cap.sent_date,\n  caption: cap.caption,\n  lastMsgId: Math.max(...rows.map(r => Number(r.msg_id))),\n  files: rows.length,\n  prevPages: page?.properties.Pages?.number || 0,\n  batches: (page?.properties.Batches?.number || 0) + 1,\n  job: {\n    file_ids: rows.map(r => r.file_id),\n    slug: (d.module + ' ' + d.type).normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^\\w]+/g, '_').replace(/^_|_$/g, '') || 'module',\n    date: cap.sent_date,\n    old_url: page?.properties['Merged PDF']?.files?.at(-1)?.file?.url || null,\n  },\n} }];"
+      }
+    },
+    {
+      "id": "c1411c75-c5d1-46c9-930c-b1c0e2823eac",
+      "name": "Process files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://dms-worker:8000/process",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.job) }}",
+        "options": {
+          "timeout": 900000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Is photo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer photo": {
+      "main": [
+        [
+          {
+            "node": "Has caption?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has caption?": {
+      "main": [
+        [
+          {
+            "node": "Wait for album",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for album": {
+      "main": [
+        [
+          {
+            "node": "Find module",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find module": {
+      "main": [
+        [
+          {
+            "node": "Confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get album": {
+      "main": [
+        [
+          {
+            "node": "Prepare job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Results": {
+      "main": [
+        [
+          {
+            "node": "Module exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Module exists?": {
+      "main": [
+        [
+          {
+            "node": "Update module",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create module",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update module": {
+      "main": [
+        [
+          {
+            "node": "Append log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append log": {
+      "main": [
+        [
+          {
+            "node": "Clear buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create module": {
+      "main": [
+        [
+          {
+            "node": "Clear buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear buffer": {
+      "main": [
+        [
+          {
+            "node": "Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is photo?": {
+      "main": [
+        [
+          {
+            "node": "Buffer photo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for album",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmed?": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini classify": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Confident?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confident?": {
+      "main": [
+        [
+          {
+            "node": "Get album",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ask module",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On error": {
+      "main": [
+        [
+          {
+            "node": "Report error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare job": {
+      "main": [
+        [
+          {
+            "node": "Process files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process files": {
+      "main": [
+        [
+          {
+            "node": "Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  }
+}
