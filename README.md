@@ -4,6 +4,8 @@ I take my course notes on paper. This bot turns the photos I send it on Telegram
 
 I send a few photos or PDFs with a short caption like `proba td3`. The bot files it under the module "Probabilités", type TD, with the new pages appended to the module's PDF and a dated entry in its upload log.
 
+24-second demo: [chemseddine-kebaily.netlify.app/en/#p-dms](https://chemseddine-kebaily.netlify.app/en/#p-dms)
+
 ```
 Telegram ──> n8n ──────────────> dms-worker (FastAPI) ──> Notion
              caption -> module    download, scan, OCR,
