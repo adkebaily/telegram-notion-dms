@@ -11,7 +11,7 @@ services:
       retries: 10
 
   n8n:
-    image: ghcr.io/n8n-io/n8n:latest
+    image: ghcr.io/n8n-io/n8n:2.46.4  # pinned: update on purpose, after reading the release notes
     restart: always
     ports:
       - "127.0.0.1:5678:5678"
